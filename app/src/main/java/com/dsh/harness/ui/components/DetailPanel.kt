@@ -22,7 +22,6 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.DeviceHub
-import androidx.compose.material.icons.outlined.Diff
 import androidx.compose.material.icons.outlined.EmojiObjects
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Folder
@@ -153,7 +152,7 @@ private fun sideCardIcon(id: String) = when (id) {
     "terminal" -> Icons.Outlined.Terminal
     "browser" -> Icons.Outlined.BrowserUpdated
     "editor" -> Icons.Outlined.Folder
-    "diff" -> Icons.Outlined.Diff
+    "diff" -> Icons.Outlined.SyncAlt
     "img" -> Icons.Outlined.GraphicEq
     "pdf" -> Icons.Outlined.Code
     "md" -> Icons.Outlined.Code

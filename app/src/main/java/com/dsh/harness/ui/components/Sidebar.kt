@@ -28,6 +28,8 @@ import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.NewLabel
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ViewModule
 import androidx.compose.material3.Icon
@@ -207,7 +209,7 @@ private fun AddWorkspaceRow(
         IconButton(onClick = onCancel) { Icon(Icons.Outlined.Close, null, modifier = Modifier.size(16.dp)) }
         IconButton(onClick = onConfirm) {
             Icon(
-                androidx.compose.material.icons.Icons.Filled.Check,
+                Icons.Filled.Check,
                 null,
                 modifier = Modifier.size(18.dp),
                 tint = harnessColors().brand
@@ -396,7 +398,7 @@ private fun SessionRow(
         }
         if (session.pinned) {
             Icon(
-                androidx.compose.material.icons.Icons.Filled.PushPin,
+                Icons.Filled.PushPin,
                 contentDescription = "已置顶",
                 tint = harnessColors().brand,
                 modifier = Modifier.size(14.dp)
