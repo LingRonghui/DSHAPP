@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DeepSeek Harness</string>
+    <string name="app_short">DSH</string>
+    <string name="app_tagline">探索未至之境 · 预览版</string>
+
+    <!-- Sidebar -->
+    <string name="new_conversation">新建会话</string>
+    <string name="new_session">新会话</string>
+    <string name="workspace">工作区</string>
+    <string name="search_conversation">搜索会话</string>
+    <string name="view_options">视图选项</string>
+    <string name="add_workspace">添加工作区</string>
+    <string name="sessions">会话</string>
+    <string name="plugin_market">插件市场</string>
+    <string name="settings">设置</string>
+    <string name="collapse_sidebar">收起侧边栏</string>
+    <string name="expand_sidebar">展开侧边栏</string>
+
+    <!-- Composer -->
+    <string name="composer_placeholder">描述你想要构建的内容</string>
+    <string name="send_message">发送消息</string>
+    <string name="command">命令</string>
+
+    <!-- Access modes -->
+    <string name="access_read_only">Read Only</string>
+    <string name="access_workspace_write">Workspace Write</string>
+    <string name="access_full">Full access</string>
+    <string name="access_mode">访问模式</string>
+
+    <!-- Settings tabs -->
+    <string name="tab_general">通用设置</string>
+    <string name="tab_models">模型</string>
+    <string name="tab_plugins">插件</string>
+    <string name="tab_agent_presets">Agent 预设</string>
+    <string name="tab_side_cards">侧边卡片</string>
+
+    <!-- Conversation tabs -->
+    <string name="conv_tab_dialog">对话</string>
+    <string name="conv_tab_trace">轨迹</string>
+    <string name="conv_tab_memory">记忆</string>
+    <string name="conv_tab_skills">技能</string>
+    <string name="conv_tab_todos">待办</string>
+    <string name="conv_tab_memory_sync">记忆同步</string>
+    <string name="conv_tab_canvas">画板</string>
+    <string name="conv_tab_model_settings">模型设置</string>
+    <string name="conv_tab_memory_evolve">Memory Evolve 设置</string>
+
+    <!-- Common -->
+    <string name="close">关闭</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
+    <string name="save">保存</string>
+    <string name="edit">编辑</string>
+    <string name="delete">删除</string>
+    <string name="install">安装</string>
+    <string name="repo">仓库</string>
+    <string name="favorite">收藏</string>
+    <string name="copy">复制</string>
+    <string name="branch_new">在新对话中分支</string>
+    <string name="alias">别名</string>
+    <string name="session_log">Session log</string>
+    <string name="background_tasks">个后台任务</string>
+    <string name="copy_session_id">复制会话ID</string>
+
+    <!-- Beta notice -->
+    <string name="beta_title">内测声明</string>
+    <string name="beta_continue">继续</string>
+</resources>
