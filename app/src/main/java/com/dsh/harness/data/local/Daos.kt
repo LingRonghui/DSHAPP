@@ -90,7 +90,7 @@ interface MessageDao {
     suspend fun updateContent(id: String, content: String, streaming: Boolean)
 
     /** 流式增量 + 工具调用 JSON 更新。 */
-    @Query("UPDATE messages SET content = :content, toolCalls = :toolCalls, streaming = :streaming WHERE id = :id")
+    @Query("UPDATE messages SET content = :content, toolCallsJson = :toolCalls, streaming = :streaming WHERE id = :id")
     suspend fun updateContentAndTools(
         id: String,
         content: String,
