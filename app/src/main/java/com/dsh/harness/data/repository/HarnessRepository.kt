@@ -186,7 +186,8 @@ class HarnessRepository @Inject constructor(
                         backgroundTaskCount = if (dto.running) 1 else (prev?.backgroundTaskCount ?: 0),
                         updatedAt = dto.updatedAt ?: prev?.updatedAt ?: now,
                         createdAt = prev?.createdAt ?: now,
-                        pinned = prev?.pinned ?: false
+                        pinned = prev?.pinned ?: false,
+                        tagsJson = prev?.tagsJson ?: ""
                     )
                 }
                 if (entities.isNotEmpty()) sessionDao.upsertAll(entities)
