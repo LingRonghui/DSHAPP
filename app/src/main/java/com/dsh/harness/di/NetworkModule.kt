@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -59,8 +60,8 @@ object NetworkModule {
                 }.getOrDefault(BuildConfig.HARNESS_BASE_URL).trimEnd('/') + "/"
                 val defaultBase = BuildConfig.HARNESS_BASE_URL.trimEnd('/') + "/"
                 val newUrl: HttpUrl = try {
-                    val baseHttp = runCatching { HttpUrl.get(dynamicBase) }
-                        .getOrElse { HttpUrl.get(defaultBase) }
+                    val baseHttp = runCatching { dynamicBase.toHttpUrl() }
+                        .getOrElse { defaultBase.toHttpUrl() }
                     original.url.newBuilder()
                         .scheme(baseHttp.scheme)
                         .host(baseHttp.host)
