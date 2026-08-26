@@ -40,12 +40,17 @@ import com.dsh.harness.data.remote.HarnessSettings
 import com.dsh.harness.data.remote.ProviderReq
 import com.dsh.harness.data.remote.RenameSessionReq
 import com.dsh.harness.data.remote.SendMessageReq
+import com.dsh.harness.data.remote.ServerTransport
 import com.dsh.harness.data.remote.UpdateAccessReq
 import com.dsh.harness.data.remote.UpdateModelReq
 import com.dsh.harness.data.remote.UpdatePresetReq
+import com.dsh.harness.data.remote.WebViewServerClient
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEmpty
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -59,6 +64,7 @@ import javax.inject.Singleton
 class HarnessRepository @Inject constructor(
     private val api: HarnessApi,
     private val dsh: DshRpcClient,
+    private val web: WebViewServerClient,
     private val workspaceDao: WorkspaceDao,
     private val sessionDao: SessionDao,
     private val messageDao: MessageDao,
@@ -74,10 +80,25 @@ class HarnessRepository @Inject constructor(
     fun observeWorkspaces(): Flow<List<Workspace>> =
         workspaceDao.observeAll().map { list -> list.map { it.toModel() } }
 
+    /**
+     * 统一真实宿主 RPC：按 ServerTransport.useWebView 选择 传输层（WebView 或 OkHttp），
+     * 响应解析一律复用 DshRpcClient.valueFromBody，保证两种传输结果一致。
+     */
+    private suspend fun rpcValue(method: String, payload: JsonObject = buildJsonObject {}): JsonElement {
+        val frame = dsh.buildFrame(method, payload)
+        val body = if (ServerTransport.useWebView) {
+            web.setOrigin(dsh.baseUrl())
+            web.post(method, frame)
+        } else {
+            dsh.postBody(method, frame)
+        }
+        return dsh.valueFromBody(method, body)
+    }
+
     /** 真实宿主协议拉取工作区；成功返回 null，失败返回用户可读的错误信息（供 UI 展示）。 */
     suspend fun refreshWorkspaces(): String? {
         val dshError = try {
-            val value = dsh.callValue(DshRpcClient.Rpcs.workspaceList)
+            val value = rpcValue(DshRpcClient.Rpcs.workspaceList)
             val list = dsh.parseWorkspaces(value)
             if (list.isNotEmpty()) {
                 workspaceDao.upsertAll(list.map {
@@ -106,9 +127,10 @@ class HarnessRepository @Inject constructor(
         return dshError
     }
 
-    /** 切换真实宿主服务器地址（设置页改地址时调用），并返回当前生效地址。 */
+    /** 切换真实宿主服务器地址（设置页改地址时调用），同步到两种传输，并返回当前生效地址。 */
     fun applyServerUrl(url: String?) {
         dsh.setBaseUrl(url)
+        web.setOrigin(url)
     }
     fun currentServerUrl(): String = dsh.baseUrl()
 

@@ -65,36 +65,50 @@ class DshRpcClient @Inject constructor(
     private val jsonType: MediaType = "application/json; charset=utf-8".toMediaType()
 
     /** 发起一次一元 RPC 调用，返回 ServerResponse.result.value（业务成功值）或抛出异常。 */
-    suspend fun callValue(method: String, payload: JsonObject = buildJsonObject {}): JsonElement =
+    suspend fun callValue(method: String, payload: JsonObject = buildJsonObject {}): JsonElement {
+        val body = postBody(method, buildFrame(method, payload))
+        return valueFromBody(method, body)
+    }
+
+    /** 构造 ClientRequest 帧 JSON 字符串（供原生 OkHttp 与 WebView 两种传输复用）。 */
+    fun buildFrame(method: String, payload: JsonObject = buildJsonObject {}): String =
+        buildJsonObject {
+            put("type", "client-request")
+            put("rpcId", RpcId.mint())
+            put("method", method)
+            put("payload", payload)
+        }.toString()
+
+    /** 原生 OkHttp 传输：POST {base}/api/<method>，返回原始响应体字符串。 */
+    suspend fun postBody(method: String, frame: String): String =
         withContext(Dispatchers.IO) {
-            val frame = buildJsonObject {
-                put("type", "client-request")
-                put("rpcId", RpcId.mint())
-                put("method", method)
-                put("payload", payload)
-            }
             val req = Request.Builder()
                 .url("$base/api/$method")
                 .addHeader("Accept", "application/json")
                 .addHeader("X-Client", "DSH mobile/Android")
-                .post(frame.toString().toRequestBody(jsonType))
+                .post(frame.toRequestBody(jsonType))
                 .build()
             client.newCall(req).execute().use { resp ->
                 val body = resp.body?.string().orEmpty()
                 if (!resp.isSuccessful) {
                     throw IOException("$method -> HTTP ${resp.code}: ${body.take(200)}")
                 }
-                val serverResponse = json.parseToJsonElement(body).jsonObject
-                val result = serverResponse["result"]?.jsonObject
-                    ?: throw IOException("$method -> missing result envelope: ${body.take(200)}")
-                val ok = result["ok"]?.jsonPrimitive?.content == "true"
-                if (!ok) {
-                    val err = result["error"]
-                    throw IOException("$method -> rpc error: ${err ?: body.take(200)}")
-                }
-                result["value"] ?: JsonObject(emptyMap())
+                body
             }
         }
+
+    /** 解析原始 ServerResponse 帧，返回 result.value 或抛出异常（两种传输共用）。 */
+    fun valueFromBody(method: String, body: String): JsonElement {
+        val serverResponse = json.parseToJsonElement(body).jsonObject
+        val result = serverResponse["result"]?.jsonObject
+            ?: throw IOException("$method -> missing result envelope: ${body.take(200)}")
+        val ok = result["ok"]?.jsonPrimitive?.content == "true"
+        if (!ok) {
+            val err = result["error"]
+            throw IOException("$method -> rpc error: ${err ?: body.take(200)}")
+        }
+        return result["value"] ?: JsonObject(emptyMap())
+    }
 
     /** 从 host 解析工作区列表（value 为 {items:[...]} / {workspaces:[...]} / 数组），逐项宽松解码。 */
     fun parseWorkspaces(elem: JsonElement): List<WorkspaceDto> {
