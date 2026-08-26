@@ -29,28 +29,31 @@ jobs:
           cmdline-tools-version: 11076708
           packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
 
-      - name: Setup Gradle 8.9
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: 8.9
+          gradle-version: wrapper
+          validate-wrappers: false
+          cache-write-only: true
 
-      - name: Generate Gradle Wrapper if missing
+      - name: Regenerate official Gradle Wrapper 8.9
         run: |
-          if [ -x "./gradlew" ] && [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "wrapper already exists"
-          else
-            echo "generate gradle wrapper 8.9"
-            gradle wrapper --gradle-version 8.9 --distribution-type bin
-            chmod +x gradlew
-          fi
+          set -e
+          # 无论仓库里 wrapper 状态如何，都用系统 gradle 重新生成官方8.9 wrapper三件套
+          which gradle || ( echo "gradle not on PATH, trying setup-gradle provisioned..."; ls -la /usr/bin/gradle* 2>/dev/null || true )
+          gradle wrapper --gradle-version 8.9 --distribution-type bin
+          chmod +x ./gradlew
+          echo "=== wrapper 校验 ==="
+          ls -la gradlew gradle/wrapper/
+          ./gradlew --version 2>&1 | head -10 || true
 
       - name: Build Debug APK
         run: |
-          if [ -x "./gradlew" ]; then
-            ./gradlew --no-daemon assembleDebug --stacktrace
-          else
-            gradle --no-daemon assembleDebug --stacktrace
-          fi
+          ./gradlew --no-daemon assembleDebug --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
+            -Pandroid.useAndroidX=true \
+            -Pandroid.enableJetifier=true \
+            --no-build-cache
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -61,7 +64,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload build logs
+      - name: Upload build outputs
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -69,5 +72,6 @@ jobs:
           path: |
             app/build/outputs/**/*.txt
             app/build/outputs/**/*.json
+            **/build/reports/**/*
           if-no-files-found: ignore
           retention-days: 14
