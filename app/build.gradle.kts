@@ -58,6 +58,11 @@ android {
     }
 }
 
+configurations.all {
+    exclude(group = "org.jetbrains", module = "annotations-java5")
+    resolutionStrategy.force("org.jetbrains:annotations:24.0.1")
+}
+
 dependencies {
     // Core
     implementation("androidx.core:core-ktx:1.13.1")
