@@ -1,0 +1,196 @@
+name: Android Build
+
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DIST: 'temurin'
+  ANDROID_COMPILE_SDK: '34'
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  GRADLE_VERSION: '8.9'
+
+jobs:
+  # 构建 Debug APK：每次都运行，确保至少有一个可交付产物
+  build-debug:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Validate Gradle Wrapper / 若缺失则在CI内安装Gradle生成Wrapper
+        id: wrapper_check
+        run: |
+          WRAPPER_JAR="gradle/wrapper/gradle-wrapper.jar"
+          if [ -f "$WRAPPER_JAR" ]; then
+            echo "wrapper_exists=true" >> $GITHUB_OUTPUT
+            echo "✓ gradle-wrapper.jar 已存在"
+          else
+            echo "wrapper_exists=false" >> $GITHUB_OUTPUT
+            echo "⚠ gradle-wrapper.jar 缺失，将使用 setup-gradle + gradle 命令构建"
+          fi
+
+      - name: Setup JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DIST }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+          packages: >
+            platforms;android-${{ env.ANDROID_COMPILE_SDK }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            platform-tools
+
+      - name: Setup Gradle ${{ env.GRADLE_VERSION }}
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+          cache-write-only: true
+
+      - name: (若需要) 就地生成 Gradle Wrapper 三件套
+        if: steps.wrapper_check.outputs.wrapper_exists != 'true'
+        run: |
+          gradle wrapper --gradle-version ${{ env.GRADLE_VERSION }} --distribution-type bin
+          ls -la gradle/wrapper/
+          [ -f gradle/wrapper/gradle-wrapper.jar ] && echo "✓ wrapper生成成功" || echo "✗ wrapper生成失败"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew 2>/dev/null || true
+
+      - name: Build Debug APK
+        id: build_debug
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew --no-daemon assembleDebug -Pandroid.verbose=true
+          else
+            gradle --no-daemon assembleDebug -Pandroid.verbose=true
+          fi
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload mapping / outputs
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: debug-build-outputs
+          path: |
+            app/build/outputs/**/*.txt
+            app/build/outputs/**/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # 构建 Release APK：仅当仓库配置了 KEYSTORE_BASE64 / KEYSTORE_PASSWORD 等 Secrets 时才运行
+  build-release:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: build-debug
+    # 仅在主分支 + 配置了签名密钥时才执行，避免无效失败
+    if: |
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      vars.RELEASE_ENABLED == 'true'
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Setup JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DIST }}
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+          packages: >
+            platforms;android-${{ env.ANDROID_COMPILE_SDK }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            platform-tools
+
+      - name: Setup Gradle ${{ env.GRADLE_VERSION }}
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+
+      - name: 生成 / 校验 Release Keystore
+        id: create_keystore
+        run: |
+          KEYSTORE_FILE="$HOME/release.keystore"
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$KEYSTORE_FILE"
+            echo "✓ 使用仓库提供的keystore"
+          else
+            echo "⚠ 未配置KEYSTORE_BASE64，生成临时自签名keystore用于演示"
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_FILE" \
+              -storepass 'demo-pass-123' \
+              -alias 'demo' \
+              -keypass 'demo-pass-123' \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Demo, OU=Harness, O=DeepSeek, L=CN, ST=CN, C=CN"
+          fi
+
+          # 强校验：文件存在 + 能被keytool识别
+          if [ -f "$KEYSTORE_FILE" ] && [ "$(stat -c%s "$KEYSTORE_FILE")" -gt 1000 ] && \
+             keytool -list -keystore "$KEYSTORE_FILE" -storepass "${{ secrets.KEYSTORE_PASSWORD:-demo-pass-123 }}" > /dev/null 2>&1; then
+            echo "ready=true" >> $GITHUB_OUTPUT
+          else
+            echo "ready=false" >> $GITHUB_OUTPUT
+            echo "✗ keystore校验失败"
+          fi
+
+          echo "KEYSTORE_FILE=$KEYSTORE_FILE" >> $GITHUB_ENV
+          echo "STORE_PASS=${{ secrets.KEYSTORE_PASSWORD:-demo-pass-123 }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEYSTORE_ALIAS:-demo }}" >> $GITHUB_ENV
+          echo "KEY_PASS=${{ secrets.KEY_PASSWORD:-demo-pass-123 }}" >> $GITHUB_ENV
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew 2>/dev/null || true
+
+      - name: Build Release APK
+        if: steps.create_keystore.outputs.ready == 'true'
+        run: |
+          if [ -f "./gradlew" ]; then
+            WRAPPER_CMD="./gradlew"
+          else
+            WRAPPER_CMD="gradle"
+          fi
+
+          $WRAPPER_CMD --no-daemon assembleRelease \
+            -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
+            -Pandroid.injected.signing.store.password="$STORE_PASS" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEY_PASS" \
+            -Pandroid.verbose=true
+
+      - name: Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        if: steps.create_keystore.outputs.ready == 'true'
+        with:
+          name: app-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn
+          retention-days: 90
