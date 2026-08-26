@@ -81,7 +81,12 @@ class HarnessRepository @Inject constructor(
             val list = dsh.parseWorkspaces(value)
             if (list.isNotEmpty()) {
                 workspaceDao.upsertAll(list.map {
-                    com.dsh.harness.data.local.WorkspaceEntity(it.id, it.name, it.parentId, it.createdAt ?: 0L)
+                    com.dsh.harness.data.local.WorkspaceEntity(
+                        id = it.workspaceId,
+                        name = it.title ?: it.path ?: "",
+                        parentId = it.parentWorkspaceId,
+                        createdAt = 0L
+                    )
                 })
                 return
             }

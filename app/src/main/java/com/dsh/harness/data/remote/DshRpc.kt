@@ -96,17 +96,18 @@ class DshRpcClient @Inject constructor(
             }
         }
 
-    /** 从 host 解析工作区列表（兼容数组 / {workspaces:[...]} 两种容器），逐项宽松解码。 */
+    /** 从 host 解析工作区列表（value 为 {items:[...]} / {workspaces:[...]} / 数组），逐项宽松解码。 */
     fun parseWorkspaces(elem: JsonElement): List<WorkspaceDto> {
         val arr = when {
             elem is JsonArray -> elem
+            elem is JsonObject && elem["items"] is JsonArray -> elem["items"] as JsonArray
             elem is JsonObject && elem["workspaces"] is JsonArray -> elem["workspaces"] as JsonArray
             else -> JsonArray(emptyList())
         }
         return arr.mapNotNull { runCatching { json.decodeFromJsonElement<WorkspaceDto>(it) }.getOrNull() }
     }
 
-    /** 从 host 解析会话列表（兼容数组 / {items:[...]} / {sessions:[...]} 三种容器）。 */
+    /** 从 host 解析会话列表（value 为 {items:[...]} / {sessions:[...]} / 数组），逐项宽松解码。 */
     fun parseSessions(elem: JsonElement): List<SessionDto> {
         val arr = when {
             elem is JsonArray -> elem
@@ -141,22 +142,21 @@ object RpcId {
 
 @kotlinx.serialization.Serializable
 data class WorkspaceDto(
-    val id: String = "",
-    val name: String = "",
-    val parentId: String? = null,
-    val createdAt: Long? = null,
-    val cwd: String? = null
+    val workspaceId: String = "",
+    val title: String? = null,
+    val path: String? = null,
+    val parentWorkspaceId: String? = null,
+    val sessionIds: List<String> = emptyList()
 )
 
 @kotlinx.serialization.Serializable
 data class SessionDto(
-    val id: String = "",
-    val title: String? = null,
-    val workspaceId: String? = null,
+    val sessionId: String = "",
+    val cwd: String? = null,
     val agentPreset: String? = null,
-    val modelId: String? = null,
-    val updatedAt: Long? = null,
-    val createdAt: Long? = null
+    val running: Boolean = false,
+    val blank: Boolean = true,
+    val updatedAt: Long? = null
 )
 
 @kotlinx.serialization.Serializable
