@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme (Material 3 via Compose handles colors at runtime). -->
+    <style name="Theme.DeepSeekHarness" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/bg_light</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
+    </style>
+
+    <!-- Splash theme (compatible with androidx.core.splashscreen). -->
+    <style name="Theme.DeepSeekHarness.Splash" parent="Theme.DeepSeekHarness">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>
