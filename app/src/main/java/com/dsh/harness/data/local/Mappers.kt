@@ -20,6 +20,7 @@ import com.dsh.harness.data.model.ToolStatus
 import com.dsh.harness.data.model.Workspace
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 
 /** Entity ↔ Model 转换 + 工具调用 JSON 序列化。 */
 object Mappers {
@@ -30,7 +31,7 @@ object Mappers {
     }
     private val toolListSerializer = ListSerializer(ToolCall.serializer())
     private val retrySerializer = RetryInfo.serializer()
-    private val stringListSerializer = ListSerializer(kotlinx.serialization.builtins.serializer<String>())
+    private val stringListSerializer = ListSerializer(serializer<String>())
 
     fun WorkspaceEntity.toModel(): Workspace = Workspace(
         id = id, name = name, parentId = parentId, createdAt = createdAt
