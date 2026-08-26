@@ -34,6 +34,7 @@ import com.dsh.harness.data.model.Workspace
 import com.dsh.harness.data.remote.BackgroundTaskDto
 import com.dsh.harness.data.remote.CreateSessionReq
 import com.dsh.harness.data.remote.CreateWorkspaceReq
+import com.dsh.harness.data.remote.DshRpcClient
 import com.dsh.harness.data.remote.HarnessApi
 import com.dsh.harness.data.remote.HarnessSettings
 import com.dsh.harness.data.remote.ProviderReq
@@ -57,6 +58,7 @@ import javax.inject.Singleton
 @Singleton
 class HarnessRepository @Inject constructor(
     private val api: HarnessApi,
+    private val dsh: DshRpcClient,
     private val workspaceDao: WorkspaceDao,
     private val sessionDao: SessionDao,
     private val messageDao: MessageDao,
@@ -72,11 +74,24 @@ class HarnessRepository @Inject constructor(
     fun observeWorkspaces(): Flow<List<Workspace>> =
         workspaceDao.observeAll().map { list -> list.map { it.toModel() } }
 
-    suspend fun refreshWorkspaces() = safe {
-        val list = api.listWorkspaces()
-        workspaceDao.upsertAll(list.map {
-            com.dsh.harness.data.local.WorkspaceEntity(it.id, it.name, it.parentId, it.createdAt)
-        })
+    suspend fun refreshWorkspaces() {
+        // 真实宿主协议优先：workspace.list（失败静默，回退原逻辑，不阻断 UI）
+        runCatching {
+            val value = dsh.callValue(DshRpcClient.Rpcs.workspaceList)
+            val list = dsh.parseWorkspaces(value)
+            if (list.isNotEmpty()) {
+                workspaceDao.upsertAll(list.map {
+                    com.dsh.harness.data.local.WorkspaceEntity(it.id, it.name, it.parentId, it.createdAt ?: 0L)
+                })
+                return
+            }
+        }
+        safe {
+            val list = api.listWorkspaces()
+            workspaceDao.upsertAll(list.map {
+                com.dsh.harness.data.local.WorkspaceEntity(it.id, it.name, it.parentId, it.createdAt)
+            })
+        }
     }
 
     suspend fun createWorkspace(name: String, parentId: String? = null): Workspace? = safe {
