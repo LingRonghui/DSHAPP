@@ -7,6 +7,7 @@ import com.dsh.harness.data.model.AccessMode
 import com.dsh.harness.data.model.ModelProvider
 import com.dsh.harness.data.model.SideCard
 import com.dsh.harness.data.remote.ProviderReq
+import com.dsh.harness.data.remote.ServerDiagnostic
 import com.dsh.harness.data.repository.HarnessRepository
 import com.dsh.harness.ui.screens.settings.SettingsTab
 import com.dsh.harness.ui.theme.ThemeMode
@@ -63,6 +64,23 @@ class SettingsViewModel @Inject constructor(
 
     private var _providerDialog = MutableStateFlow<ProviderDialogState?>(null)
     val providerDialog get() = _providerDialog.value
+
+    // 连接自检
+    private val _diagRunning = MutableStateFlow(false)
+    val diagRunning: StateFlow<Boolean> = _diagRunning.asStateFlow()
+    private val _diagResults = MutableStateFlow<List<ServerDiagnostic.Step>>(emptyList())
+    val diagResults: StateFlow<List<ServerDiagnostic.Step>> = _diagResults.asStateFlow()
+    fun runDiagnostic() {
+        if (_diagRunning.value) return
+        viewModelScope.launch {
+            _diagRunning.value = true
+            _diagResults.value = ServerDiagnostic.run(_diagTarget.value)
+            _diagRunning.value = false
+        }
+    }
+    private val _diagTarget = MutableStateFlow("https://47.110.78.97.sslip.io/")
+    fun setDiagnosticTarget(url: String) { _diagTarget.value = url.trim().trimEnd('/').ifBlank { "https://47.110.78.97.sslip.io/" } }
+    val diagnosticTarget: StateFlow<String> = _diagTarget.asStateFlow()
 
     fun setTab(tab: SettingsTab) { _tab.value = tab }
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { prefs.setThemeMode(mode) }

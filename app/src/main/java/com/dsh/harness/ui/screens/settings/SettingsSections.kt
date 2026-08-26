@@ -50,6 +50,7 @@ import com.dsh.harness.data.model.ModelProvider
 import com.dsh.harness.data.model.SideCard
 import com.dsh.harness.data.model.SideCardGroup
 import com.dsh.harness.data.remote.ProviderReq
+import com.dsh.harness.data.remote.ServerDiagnostic
 import com.dsh.harness.ui.theme.ThemeMode
 import com.dsh.harness.ui.theme.harnessColors
 
@@ -62,12 +63,15 @@ fun GeneralSettings(
     defaultAccess: AccessMode,
     busyEnter: String,
     serverBaseUrl: String,
+    diagRunning: Boolean,
+    diagResults: List<ServerDiagnostic.Step>,
     onThemeMode: (ThemeMode) -> Unit,
     onLanguage: (String) -> Unit,
     onPreset: (String) -> Unit,
     onAccess: (AccessMode) -> Unit,
     onBusyEnter: (String) -> Unit,
-    onServerBaseUrl: (String) -> Unit
+    onServerBaseUrl: (String) -> Unit,
+    onRunDiag: () -> Unit
 ) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Agent 预设", style = MaterialTheme.typography.labelMedium, color = harnessColors().tertiaryText) }
@@ -135,6 +139,42 @@ fun GeneralSettings(
                 supportingText = { Text("例如 https://你的服务器域名或IP/（含 http(s):// 和结尾斜杠）") },
                 modifier = Modifier.fillMaxWidth()
             )
+        }
+        item { Divider() }
+        item { Text("连接自检", style = MaterialTheme.typography.labelMedium, color = harnessColors().tertiaryText) }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = onRunDiag,
+                    enabled = !diagRunning,
+                    colors = ButtonDefaults.buttonColors(containerColor = harnessColors().brand)
+                ) {
+                    Text(if (diagRunning) "检测中…" else "开始检测")
+                }
+            }
+        }
+        if (diagResults.isNotEmpty()) {
+            item {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(harnessColors().sidebar)
+                        .padding(12.dp)
+                ) {
+                    diagResults.forEach { s ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(if (s.ok) "✅" else "❌", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "${s.label}：${s.detail}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (s.ok) harnessColors().primaryText else MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
