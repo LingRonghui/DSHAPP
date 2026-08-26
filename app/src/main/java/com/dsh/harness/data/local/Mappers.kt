@@ -41,14 +41,17 @@ object Mappers {
         id = id, title = title, workspaceId = workspaceId, alias = alias,
         agentPreset = agentPreset, accessMode = AccessMode.fromKey(accessMode),
         modelId = modelId, backgroundTaskCount = backgroundTaskCount,
-        updatedAt = updatedAt, createdAt = createdAt, pinned = pinned
+        updatedAt = updatedAt, createdAt = createdAt, pinned = pinned,
+        tags = if (tagsJson.isNullOrBlank()) emptyList() else
+            runCatching { json.decodeFromString(stringListSerializer, tagsJson) }.getOrDefault(emptyList())
     )
 
     fun Session.toEntity(): SessionEntity = SessionEntity(
         id = id, title = title, workspaceId = workspaceId, alias = alias,
         agentPreset = agentPreset, accessMode = accessMode.key,
         modelId = modelId, backgroundTaskCount = backgroundTaskCount,
-        updatedAt = updatedAt, createdAt = createdAt, pinned = pinned
+        updatedAt = updatedAt, createdAt = createdAt, pinned = pinned,
+        tagsJson = if (tags.isEmpty()) "" else json.encodeToString(stringListSerializer, tags)
     )
 
     fun MessageEntity.toModel(): ChatMessage = ChatMessage(

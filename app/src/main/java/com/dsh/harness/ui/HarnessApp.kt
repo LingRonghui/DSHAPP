@@ -71,6 +71,7 @@ fun HarnessApp() {
         onCommand = shellVm::runCommand,
         onTogglePinned = shellVm::togglePinned,
         onDeleteSession = shellVm::deleteSession,
+        onLoadMoreMessages = shellVm::loadMoreMessages,
         navController = navController
     )
 

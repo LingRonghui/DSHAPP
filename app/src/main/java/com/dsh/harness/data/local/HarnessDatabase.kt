@@ -16,7 +16,7 @@ import androidx.room.RoomDatabase
         MemoryEntity::class,
         SkillEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class HarnessDatabase : RoomDatabase() {

@@ -16,7 +16,9 @@ import com.dsh.harness.data.model.SessionTab
 import com.dsh.harness.data.model.SideCard
 import com.dsh.harness.data.model.Workspace
 import com.dsh.harness.data.repository.HarnessRepository
+import com.dsh.harness.data.remote.ConnState
 import com.dsh.harness.data.remote.EventStream
+import com.dsh.harness.data.remote.StreamEvent
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -58,7 +60,8 @@ data class AppUiState(
     val sending: Boolean = false,
     val error: String? = null,
     val syncError: String? = null,
-    val serverUrl: String? = null
+    val serverUrl: String? = null,
+    val connectionState: ConnState = ConnState.DISCONNECTED
 ) {
     val currentSession: Session? get() = sessions.firstOrNull { it.id == currentSessionId }
     val currentWorkspace: Workspace? get() = workspaces.firstOrNull { it.id == currentWorkspaceId }
@@ -93,32 +96,93 @@ class AppShellViewModel @Inject constructor(
                 events.setBase(url)
             }
         }
-        // 官方事件流：连接 /api/events.mux，收到 host/session 事件自动刷新，实现实时同步
+        // 连接状态暴露
+        viewModelScope.launch {
+            events.connState.collect { st ->
+                _uiState.update { it.copy(connectionState = st) }
+            }
+        }
+        // 归一化事件流：按 Kind 扇出到精确刷新
         viewModelScope.launch {
             events.start()
-            events.events.collect { frame ->
-                val method = frame.method ?: return@collect
-                when {
-                    method.contains("workspace", ignoreCase = true) ->
+            events.events.collect { evt ->
+                when (evt.kind) {
+                    StreamEvent.Kind.RECONNECTED -> {
+                        // 重连后执行全量刷新（gap 修复：断线期间的事件不会丢失）
+                        refreshAll(clearSyncError = true)
+                    }
+                    StreamEvent.Kind.WORKSPACE -> {
                         viewModelScope.launch { runCatching { repo.refreshWorkspaces() } }
-                    method.contains("session", ignoreCase = true) ->
+                    }
+                    StreamEvent.Kind.SESSION -> {
                         viewModelScope.launch { runCatching { repo.refreshSessions() } }
+                    }
+                    StreamEvent.Kind.MESSAGE -> {
+                        // 消息增量事件：刷新当前会话的消息列表
+                        val sid = _uiState.value.currentSessionId
+                        if (sid != null) viewModelScope.launch {
+                            // Message 的 observeBySession 已经走 Flow，多数情况下数据库变化就会自动刷新；
+                            // 这里兜底跑一次 refreshMessages（从远端分页拉最近消息）
+                            runCatching {
+                                val before = System.currentTimeMillis()
+                                repo.loadMoreMessages(sid, before)
+                            }
+                        }
+                    }
+                    StreamEvent.Kind.MODEL -> {
+                        viewModelScope.launch {
+                            runCatching { repo.refreshProviders() }
+                            runCatching { repo.refreshModels() }
+                        }
+                    }
+                    StreamEvent.Kind.PLUGIN -> {
+                        viewModelScope.launch {
+                            runCatching { repo.refreshMarket("all") }
+                        }
+                    }
+                    StreamEvent.Kind.SETTINGS -> {
+                        viewModelScope.launch {
+                            runCatching { repo.refreshSideCards() }
+                        }
+                    }
+                    StreamEvent.Kind.TASK,
+                    StreamEvent.Kind.HOST_DESCRIBE,
+                    StreamEvent.Kind.UNKNOWN -> {
+                        // 暂时不做 UI 级响应
+                    }
                 }
             }
         }
-        // 订阅工作区、会话、提供方、模型、侧边卡片
+        // 订阅工作区、会话、提供方、模型、侧边卡片、插件
         viewModelScope.launch {
             combine(
                 repo.observeWorkspaces(),
                 repo.observeSessions(),
                 repo.observeProviders(),
                 repo.observeModels(),
-                repo.observeSideCards()
-            ) { ws, sess, prov, models, cards ->
+                repo.observeSideCards(),
+                repo.observeInstalledPlugins(),
+                repo.observeFavoritePlugins()
+            ) { arr ->
+                @Suppress("UNCHECKED_CAST")
+                val ws = arr[0] as List<Workspace>
+                @Suppress("UNCHECKED_CAST")
+                val sess = arr[1] as List<Session>
+                @Suppress("UNCHECKED_CAST")
+                val prov = arr[2] as List<ModelProvider>
+                @Suppress("UNCHECKED_CAST")
+                val models = arr[3] as List<ModelInfo>
+                @Suppress("UNCHECKED_CAST")
+                val cards = arr[4] as List<SideCard>
+                @Suppress("UNCHECKED_CAST")
+                val inst = arr[5] as List<MarketPlugin>
+                @Suppress("UNCHECKED_CAST")
+                val favs = arr[6] as List<MarketPlugin>
                 _uiState.update {
                     it.copy(
                         workspaces = ws, sessions = sess, providers = prov,
-                        models = models, sideCards = cards
+                        models = models, sideCards = cards,
+                        installedPlugins = inst, favoritePlugins = favs
                     )
                 }
             }.collect {}
@@ -129,7 +193,10 @@ class AppShellViewModel @Inject constructor(
                 if (state.currentSessionId != null) repo.observeMessages(state.currentSessionId)
                 else kotlinx.coroutines.flow.flowOf(emptyList())
             }.collect { msgs ->
-                _uiState.update { it.copy(messages = msgs) }
+                _uiState.update {
+                    val stillSending = it.sending || msgs.any { m -> m.streaming }
+                    it.copy(messages = msgs, sending = stillSending)
+                }
             }
         }
         // 最近工作区记忆
@@ -146,6 +213,24 @@ class AppShellViewModel @Inject constructor(
         }
     }
 
+    /** 全量刷新（重连恢复 / 初始化后同步缺口用）。 */
+    private fun refreshAll(clearSyncError: Boolean) {
+        viewModelScope.launch {
+            val syncErr = repo.refreshWorkspaces()
+            runCatching { repo.refreshSessions() }
+            runCatching { repo.refreshProviders() }
+            runCatching { repo.refreshModels() }
+            runCatching { repo.refreshSideCards() }
+            runCatching { repo.refreshMarket("all") }
+            _uiState.update { cur ->
+                cur.copy(
+                    syncError = if (clearSyncError) syncErr else (cur.syncError ?: syncErr),
+                    serverUrl = repo.currentServerUrl()
+                )
+            }
+        }
+    }
+
     /** 首次启动种子 + 数据刷新。 */
     suspend fun bootstrap() {
         if (_uiState.value.bootstrapped) return
@@ -158,11 +243,13 @@ class AppShellViewModel @Inject constructor(
         }
         runCatching { repo.refreshSessions() }
         runCatching { repo.refreshProviders() }
+        runCatching { repo.refreshModels() }      // 模型下拉：bootstrap 时必须有数据
         runCatching { repo.refreshSideCards() }
+        runCatching { repo.refreshMarket("all") }
         // 没有任何工作区时创建一个默认工作区
         val wss = repo.observeWorkspaces().first()
         if (wss.isEmpty()) {
-            val ws = repo.createWorkspace("足球AI网站")
+            val ws = repo.createWorkspace("默认工作区")
             if (ws != null) {
                 prefs.setLastWorkspace(ws.id)
                 val s = repo.createSession(ws.id, "新会话")
@@ -224,7 +311,13 @@ class AppShellViewModel @Inject constructor(
         _uiState.update { it.copy(sending = true) }
         viewModelScope.launch {
             repo.sendMessage(sid, text, cmd)
-            _uiState.update { it.copy(sending = false) }
+            // sending 状态由消息 observe 回调在检测到 streaming 结束时同步清除，
+            // 这里兜底 50ms 后再评估一次（避免 race）
+            kotlinx.coroutines.delay(50)
+            val stillStreaming = _uiState.value.messages.any { m -> m.streaming }
+            if (!stillStreaming) {
+                _uiState.update { it.copy(sending = false) }
+            }
         }
     }
 
@@ -271,6 +364,16 @@ class AppShellViewModel @Inject constructor(
             if (_uiState.value.currentSessionId == id) {
                 prefs.setLastSession(null)
             }
+        }
+    }
+
+    /** UI 侧"加载更早消息"按钮回调：按会话分页向前拉历史。 */
+    fun loadMoreMessages() {
+        val sid = _uiState.value.currentSessionId ?: return
+        val earliest = _uiState.value.messages.minOfOrNull { it.createdAt }
+            ?: System.currentTimeMillis()
+        viewModelScope.launch {
+            runCatching { repo.loadMoreMessages(sid, earliest) }
         }
     }
 }

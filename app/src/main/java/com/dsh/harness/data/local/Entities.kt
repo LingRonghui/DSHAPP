@@ -25,7 +25,9 @@ data class SessionEntity(
     val backgroundTaskCount: Int,
     val updatedAt: Long,
     val createdAt: Long,
-    val pinned: Boolean
+    val pinned: Boolean,
+    /** 标签 JSON：List<String>，旧版本无此列时默认空串。 */
+    val tagsJson: String = ""
 )
 
 /** 消息表。 */

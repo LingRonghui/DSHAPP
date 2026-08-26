@@ -87,6 +87,7 @@ fun MainScreen(
     onCommand: (CommandItem) -> Unit,
     onTogglePinned: (String, Boolean) -> Unit,
     onDeleteSession: (String) -> Unit,
+    onLoadMoreMessages: () -> Unit = {},
     navController: NavHostController
 ) {
     val colors = harnessColors()
@@ -119,7 +120,8 @@ fun MainScreen(
                 onBranchSession = onBranchSession,
                 onCommand = onCommand,
                 onTogglePinned = onTogglePinned,
-                onDeleteSession = onDeleteSession
+                onDeleteSession = onDeleteSession,
+                onLoadMoreMessages = onLoadMoreMessages
             )
         } else {
             WideLayout(
@@ -142,7 +144,8 @@ fun MainScreen(
                 onBranchSession = onBranchSession,
                 onCommand = onCommand,
                 onTogglePinned = onTogglePinned,
-                onDeleteSession = onDeleteSession
+                onDeleteSession = onDeleteSession,
+                onLoadMoreMessages = onLoadMoreMessages
             )
         }
     }
@@ -173,7 +176,8 @@ private fun CompactLayout(
     onBranchSession: () -> Unit,
     onCommand: (CommandItem) -> Unit,
     onTogglePinned: (String, Boolean) -> Unit,
-    onDeleteSession: (String) -> Unit
+    onDeleteSession: (String) -> Unit,
+    onLoadMoreMessages: () -> Unit = {}
 ) {
     val scrim = Color.Black.copy(alpha = 0.48f)
 
@@ -199,6 +203,8 @@ private fun CompactLayout(
                 onSelectTab = onSelectTab,
                 onBranchSession = onBranchSession,
                 onCommand = onCommand,
+                onSelectWorkspace = onSelectWorkspace,
+                onLoadMoreMessages = onLoadMoreMessages,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -338,7 +344,8 @@ private fun WideLayout(
     onBranchSession: () -> Unit,
     onCommand: (CommandItem) -> Unit,
     onTogglePinned: (String, Boolean) -> Unit,
-    onDeleteSession: (String) -> Unit
+    onDeleteSession: (String) -> Unit,
+    onLoadMoreMessages: () -> Unit = {}
 ) {
     Row(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
         AnimatedVisibility(
@@ -381,6 +388,8 @@ private fun WideLayout(
                 onSelectTab = onSelectTab,
                 onBranchSession = onBranchSession,
                 onCommand = onCommand,
+                onSelectWorkspace = onSelectWorkspace,
+                onLoadMoreMessages = onLoadMoreMessages,
                 modifier = Modifier.fillMaxSize()
             )
         }
