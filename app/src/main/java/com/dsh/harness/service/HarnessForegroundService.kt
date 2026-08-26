@@ -15,7 +15,7 @@ class HarnessForegroundService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
-        return START_STICKY
+        return super.onStartCommand(intent, flags, startId)
     }
 
     private fun buildNotification(): Notification {

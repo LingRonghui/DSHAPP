@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <style name="Theme.DeepSeekHarness" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/bg_dark</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="28">false</item>
     </style>
 
     <style name="Theme.DeepSeekHarness.Splash" parent="Theme.DeepSeekHarness">
