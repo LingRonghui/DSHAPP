@@ -23,32 +23,25 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Android SDK packages
-        run: |
-          set -e
-          echo "ANDROID_HOME=\"
-          yes | sdkmanager --install \
-            "platforms;android-34" \
-            "build-tools;34.0.0" \
-            "platform-tools" \
-            > /dev/null 2>&1 || true
-          sdkmanager --list_installed 2>&1 | head -20
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+          packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
 
       - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
 
-      - name: Generate Gradle Wrapper (if missing)
+      - name: Generate Gradle Wrapper if missing
         run: |
-          if [ -f "./gradlew" ] && [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            echo "Wrapper already present, skipping"
-            chmod +x gradlew || true
+          if [ -x "./gradlew" ] && [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "wrapper already exists"
           else
-            echo "Generating Gradle wrapper 8.9..."
+            echo "generate gradle wrapper 8.9"
             gradle wrapper --gradle-version 8.9 --distribution-type bin
-            chmod +x gradlew || true
-            ls -la gradle/wrapper/
+            chmod +x gradlew
           fi
 
       - name: Build Debug APK
@@ -68,7 +61,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload outputs logs
+      - name: Upload build logs
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -76,6 +69,5 @@ jobs:
           path: |
             app/build/outputs/**/*.txt
             app/build/outputs/**/*.json
-            **/*.log
           if-no-files-found: ignore
           retention-days: 14
