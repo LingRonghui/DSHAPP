@@ -115,6 +115,11 @@ fun ConversationArea(
             onSelectModel = onSelectModel
         )
 
+        // 同步失败提示条（工作区为空时把真实原因显示出来，而不是静默空白）
+        if (uiState.syncError != null && uiState.workspaces.isEmpty()) {
+            SyncErrorBanner(message = uiState.syncError, serverUrl = uiState.serverUrl)
+        }
+
         // 会话信息栏
         if (session != null) {
             SessionHeader(
@@ -164,6 +169,31 @@ fun ConversationArea(
             onCommand = onCommand,
             commands = Commands.ALL
         )
+    }
+}
+
+/** 同步失败提示条：工作区拉取失败时显示真实原因，避免静默空白。 */
+@Composable
+private fun SyncErrorBanner(message: String, serverUrl: String?) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("同步失败：$message", style = MaterialTheme.typography.bodyMedium)
+                if (!serverUrl.isNullOrBlank()) {
+                    Text(
+                        "当前服务器：$serverUrl（可在 设置 中修改）",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
     }
 }
 

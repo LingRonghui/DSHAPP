@@ -55,7 +55,9 @@ data class AppUiState(
     val sideCardDefaultOpen: Boolean = true,
     val sideCardWidthPercent: Int = 35,
     val sending: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val syncError: String? = null,
+    val serverUrl: String? = null
 ) {
     val currentSession: Session? get() = sessions.firstOrNull { it.id == currentSessionId }
     val currentWorkspace: Workspace? get() = workspaces.firstOrNull { it.id == currentWorkspaceId }
@@ -82,6 +84,10 @@ class AppShellViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     init {
+        // 服务器地址切换时同步到真实宿主客户端
+        viewModelScope.launch {
+            prefs.baseUrl.collect { repo.applyServerUrl(it) }
+        }
         // 订阅工作区、会话、提供方、模型、侧边卡片
         viewModelScope.launch {
             combine(
@@ -126,7 +132,12 @@ class AppShellViewModel @Inject constructor(
     suspend fun bootstrap() {
         if (_uiState.value.bootstrapped) return
         runCatching { repo.seedDefaultsIfEmpty() }
-        runCatching { repo.refreshWorkspaces() }
+        val syncErr = repo.refreshWorkspaces()
+        if (syncErr != null) {
+            _uiState.update {
+                it.copy(syncError = syncErr, serverUrl = repo.currentServerUrl())
+            }
+        }
         runCatching { repo.refreshSessions() }
         runCatching { repo.refreshProviders() }
         runCatching { repo.refreshSideCards() }

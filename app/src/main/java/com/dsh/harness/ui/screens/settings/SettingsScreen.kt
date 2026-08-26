@@ -82,6 +82,7 @@ fun SettingsScreen(onClose: () -> Unit) {
     val sideWidth by vm.sideCardWidthPercent.collectAsStateWithLifecycle(initialValue = 35)
     val fileInSide by vm.openFileInSideCard.collectAsStateWithLifecycle(initialValue = true)
     val posCompat by vm.positionCompatMode.collectAsStateWithLifecycle(initialValue = false)
+    val serverBaseUrl by vm.serverBaseUrl.collectAsStateWithLifecycle(initialValue = "https://47.110.78.97.sslip.io/")
     val providers by vm.providers.collectAsStateWithLifecycle()
     val sideCards by vm.sideCards.collectAsStateWithLifecycle()
 
@@ -121,11 +122,13 @@ fun SettingsScreen(onClose: () -> Unit) {
                         defaultPreset = defaultPreset,
                         defaultAccess = defaultAccess,
                         busyEnter = busyEnter,
+                        serverBaseUrl = serverBaseUrl,
                         onThemeMode = vm::setThemeMode,
                         onLanguage = vm::setLanguage,
                         onPreset = vm::setDefaultPreset,
                         onAccess = vm::setDefaultAccess,
-                        onBusyEnter = vm::setBusyEnterBehavior
+                        onBusyEnter = vm::setBusyEnterBehavior,
+                        onServerBaseUrl = vm::setServerBaseUrl
                     )
                     SettingsTab.MODELS -> ModelsSettings(
                         providers = providers,

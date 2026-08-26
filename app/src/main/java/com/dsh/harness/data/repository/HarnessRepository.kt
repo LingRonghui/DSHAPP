@@ -74,9 +74,9 @@ class HarnessRepository @Inject constructor(
     fun observeWorkspaces(): Flow<List<Workspace>> =
         workspaceDao.observeAll().map { list -> list.map { it.toModel() } }
 
-    suspend fun refreshWorkspaces() {
-        // 真实宿主协议优先：workspace.list（失败静默，回退原逻辑，不阻断 UI）
-        runCatching {
+    /** 真实宿主协议拉取工作区；成功返回 null，失败返回用户可读的错误信息（供 UI 展示）。 */
+    suspend fun refreshWorkspaces(): String? {
+        val dshError = try {
             val value = dsh.callValue(DshRpcClient.Rpcs.workspaceList)
             val list = dsh.parseWorkspaces(value)
             if (list.isNotEmpty()) {
@@ -88,16 +88,29 @@ class HarnessRepository @Inject constructor(
                         createdAt = 0L
                     )
                 })
-                return
             }
+            null
+        } catch (e: Exception) {
+            e.message ?: "网络错误"
         }
+        if (dshError == null) return null
+        // 回退：旧式接口兜底 + 向 UI 报告真实失败原因
         safe {
             val list = api.listWorkspaces()
-            workspaceDao.upsertAll(list.map {
-                com.dsh.harness.data.local.WorkspaceEntity(it.id, it.name, it.parentId, it.createdAt)
-            })
+            if (list.isNotEmpty()) {
+                workspaceDao.upsertAll(list.map {
+                    com.dsh.harness.data.local.WorkspaceEntity(it.id, it.name, it.parentId, it.createdAt)
+                })
+            }
         }
+        return dshError
     }
+
+    /** 切换真实宿主服务器地址（设置页改地址时调用），并返回当前生效地址。 */
+    fun applyServerUrl(url: String?) {
+        dsh.setBaseUrl(url)
+    }
+    fun currentServerUrl(): String = dsh.baseUrl()
 
     suspend fun createWorkspace(name: String, parentId: String? = null): Workspace? = safe {
         val ws = api.createWorkspace(CreateWorkspaceReq(name, parentId))

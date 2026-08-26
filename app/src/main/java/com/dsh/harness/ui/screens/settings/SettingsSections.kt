@@ -61,11 +61,13 @@ fun GeneralSettings(
     defaultPreset: String,
     defaultAccess: AccessMode,
     busyEnter: String,
+    serverBaseUrl: String,
     onThemeMode: (ThemeMode) -> Unit,
     onLanguage: (String) -> Unit,
     onPreset: (String) -> Unit,
     onAccess: (AccessMode) -> Unit,
-    onBusyEnter: (String) -> Unit
+    onBusyEnter: (String) -> Unit,
+    onServerBaseUrl: (String) -> Unit
 ) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Text("Agent 预设", style = MaterialTheme.typography.labelMedium, color = harnessColors().tertiaryText) }
@@ -120,6 +122,18 @@ fun GeneralSettings(
                 options = listOf("queue" to "排队发送", "send" to "立即发送", "ignore" to "忽略"),
                 selected = busyEnter,
                 onSelect = onBusyEnter
+            )
+        }
+        item { Divider() }
+        item { Text("服务器地址", style = MaterialTheme.typography.labelMedium, color = harnessColors().tertiaryText) }
+        item {
+            OutlinedTextField(
+                value = serverBaseUrl,
+                onValueChange = onServerBaseUrl,
+                singleLine = true,
+                label = { Text("服务器地址") },
+                supportingText = { Text("例如 https://你的服务器域名或IP/（含 http(s):// 和结尾斜杠）") },
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

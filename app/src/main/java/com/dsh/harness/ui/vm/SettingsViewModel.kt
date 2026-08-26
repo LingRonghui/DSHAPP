@@ -53,6 +53,8 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
     val positionCompatMode: StateFlow<Boolean> = prefs.positionCompatMode
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    val serverBaseUrl: StateFlow<String> = prefs.baseUrl
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "https://47.110.78.97.sslip.io/")
 
     val providers: StateFlow<List<ModelProvider>> = repo.observeProviders()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -72,6 +74,9 @@ class SettingsViewModel @Inject constructor(
     fun setSideCardWidthPercent(percent: Int) = viewModelScope.launch { prefs.setSideCardWidthPercent(percent) }
     fun setOpenFileInSideCard(open: Boolean) = viewModelScope.launch { prefs.setOpenFileInSideCard(open) }
     fun setPositionCompatMode(enabled: Boolean) = viewModelScope.launch { prefs.setPositionCompatMode(enabled) }
+    fun setServerBaseUrl(url: String) = viewModelScope.launch {
+        prefs.setBaseUrl(url.trim().trimEnd('/').ifBlank { "https://47.110.78.97.sslip.io/" })
+    }
     fun toggleSideCard(id: String, enabled: Boolean) = viewModelScope.launch { repo.setSideCardEnabled(id, enabled) }
 
     fun refresh() {
