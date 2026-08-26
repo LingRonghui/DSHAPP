@@ -251,6 +251,7 @@ private fun CompactLayout(
                     .fillMaxHeight()
                     .width(300.dp)
                     .align(Alignment.CenterStart)
+                    .windowInsetsPadding(WindowInsets.statusBars)
             ) {
                 Sidebar(
                     uiState = uiState,
@@ -291,6 +292,7 @@ private fun CompactLayout(
                     .widthIn(max = 380.dp)
                     .fillMaxWidth(0.9f)
                     .align(Alignment.CenterEnd)
+                    .windowInsetsPadding(WindowInsets.statusBars)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Row(
