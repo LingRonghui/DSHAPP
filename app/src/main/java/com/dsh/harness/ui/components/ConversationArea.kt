@@ -2,7 +2,9 @@ package com.dsh.harness.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,12 +22,14 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
@@ -53,6 +57,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -179,7 +185,10 @@ private fun TopBar(
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -202,9 +211,9 @@ private fun TopBar(
             )
             Spacer(Modifier.width(8.dp))
             // 命令按钮（占位，输入框侧也有更细致的命令入口）
-            // 访问模式
+            // 访问模式（session.accessMode 为空时给出友好默认，避免显示 "null"）
             DropdownChip(
-                label = "访问模式: " + session?.accessMode?.label,
+                label = "访问模式: " + (session?.accessMode?.label ?: "自动"),
                 icon = Icons.Outlined.Bolt,
                 items = AccessMode.values().map { it.label to { onSelectAccess(it) } }
             )
@@ -328,10 +337,38 @@ private fun TabPill(label: String, active: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun EmptyState() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    val c = harnessColors()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        c.brandContainer.copy(alpha = 0.45f),
+                        c.background.copy(alpha = 0f)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Outlined.Forum, null, tint = harnessColors().tertiaryText, modifier = Modifier.size(64.dp))
-            Text("选择或新建一个会话", style = MaterialTheme.typography.bodyMedium, color = harnessColors().tertiaryText)
+            Box(
+                modifier = Modifier
+                    .size(88.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(listOf(c.brand, c.purple))),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.AutoAwesome,
+                    null,
+                    tint = Color.White,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text("选择或新建一个会话", style = MaterialTheme.typography.titleSmall, color = c.secondaryText)
+            Text("DSH mobile · 探索未至之境", style = MaterialTheme.typography.labelMedium, color = c.tertiaryText)
         }
     }
 }
