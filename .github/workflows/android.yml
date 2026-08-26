@@ -27,42 +27,77 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup JDK ${{ env.JAVA_VERSION }}
+      - name: Setup JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: ${{ env.JAVA_VERSION }}
-          distribution: ${{ env.JAVA_DIST }}
+          java-version: 17
+          distribution: temurin
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK (platforms 34, build-tools 34.0.0)
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 11076708
           packages: >
-            platforms;android-${{ env.ANDROID_COMPILE_SDK }}
-            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            platforms;android-34
+            build-tools;34.0.0
             platform-tools
 
-      - name: Setup Gradle ${{ env.GRADLE_VERSION }} (wrapper校验禁用，规避无效hash)
+      - name: Setup Gradle 8.9 (wrapper校验禁用，直接使用gradle命令)
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: ${{ env.GRADLE_VERSION }}
+          gradle-version: 8.9
           validate-wrappers: false
           cache-write-only: true
-          gradle-home-cache-includes: |
-            caches
-            notifications
-            jdks
-            wrapper/dists
+
+      - name: Sanity check Gradle and project structure
+        id: sanity
+        run: |
+          set +e
+          echo "--- pwd & files ---"
+          pwd
+          ls -la
+          echo "--- gradle version ---"
+          gradle --version | head -5
+          echo "--- project files ---"
+          ls app/build.gradle.kts settings.gradle.kts build.gradle.kts 2>&1
+          echo "--- android home ---"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/platforms/android-34/" 2>&1 | head -3
+          ls "$ANDROID_HOME/build-tools/34.0.0/" 2>&1 | head -3
+          set -e
+          echo "Sanity OK"
+
+      - name: Gradle resolve + help (confirm config parsing works)
+        run: |
+          gradle --no-daemon --console=plain help 2>&1 | tee /tmp/gradle-help.log | tail -80
+          RC=${PIPESTATUS[0]}
+          echo "help RC=$RC"
+          if [ $RC -ne 0 ]; then
+            echo "=== /tmp/gradle-help.log (full) ==="
+            cat /tmp/gradle-help.log
+            exit $RC
+          fi
 
       - name: Build Debug APK
         id: build_debug
         run: |
-          echo "=== Gradle 构建开始（直接使用系统Gradle，不依赖wrapper jar）==="
-          gradle --no-daemon --offline=false assembleDebug -Pandroid.verbose=true --stacktrace 2>&1 | tail -200
-          EXIT_CODE=${PIPESTATUS[0]}
-          echo "=== 构建结束，exit=$EXIT_CODE ==="
-          ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "⚠ 未找到debug输出目录"
-          exit $EXIT_CODE
+          set +e
+          gradle --no-daemon --console=plain assembleDebug 2>&1 | tee /tmp/build.log
+          BUILD_RC=${PIPESTATUS[0]}
+          set -e
+          echo "=== Build finished, RC=$BUILD_RC ==="
+          if [ $BUILD_RC -ne 0 ]; then
+            echo "=== BUILD FAILED. Last 250 lines: ==="
+            tail -250 /tmp/build.log
+            echo ""
+            echo "=== Searching for errors in build log ==="
+            grep -in "error\|exception\|fail" /tmp/build.log | head -60 || true
+            exit $BUILD_RC
+          fi
+          echo "=== Last 80 lines ==="
+          tail -80 /tmp/build.log
+          echo ""
+          ls -la app/build/outputs/apk/debug/ 2>/dev/null
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
@@ -73,13 +108,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload mapping / outputs
+      - name: Upload build log if failed
         uses: actions/upload-artifact@v4
-        if: success()
+        if: failure()
         with:
-          name: debug-build-outputs
-          path: |
-            app/build/outputs/**/*.txt
-            app/build/outputs/**/*.json
+          name: build-log
+          path: /tmp/build.log
           if-no-files-found: ignore
           retention-days: 14
