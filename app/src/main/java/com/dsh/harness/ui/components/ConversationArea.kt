@@ -90,6 +90,8 @@ fun ConversationArea(
     onSelectTab: (SessionTab) -> Unit,
     onBranchSession: () -> Unit,
     onCommand: (CommandItem) -> Unit,
+    onSelectWorkspace: (String) -> Unit = {},
+    onLoadMoreMessages: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var draft by remember(uiState.currentSessionId) { mutableStateOf("") }
@@ -112,7 +114,8 @@ fun ConversationArea(
             onOpenMarket = onOpenMarket,
             onSelectPreset = onSelectPreset,
             onSelectAccess = onSelectAccess,
-            onSelectModel = onSelectModel
+            onSelectModel = onSelectModel,
+            onSelectWorkspace = onSelectWorkspace
         )
 
         // 同步失败提示条（工作区为空时把真实原因显示出来，而不是静默空白）
@@ -146,7 +149,7 @@ fun ConversationArea(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    item { LoadEarlierButton {} }
+                    item { LoadEarlierButton(onLoadMoreMessages) }
                     items(uiState.messages, key = { it.id }) { msg ->
                         com.dsh.harness.ui.components.message.MessageItem(message = msg)
                     }
@@ -206,7 +209,8 @@ private fun TopBar(
     onOpenMarket: () -> Unit,
     onSelectPreset: (String) -> Unit,
     onSelectAccess: (AccessMode) -> Unit,
-    onSelectModel: (String) -> Unit
+    onSelectModel: (String) -> Unit,
+    onSelectWorkspace: (String) -> Unit
 ) {
     val session = uiState.currentSession
     Surface(
@@ -227,11 +231,13 @@ private fun TopBar(
                     Icon(Icons.Outlined.Menu, "展开侧边栏", tint = harnessColors().secondaryText)
                 }
             }
-            // 工作区选择
+            // 工作区选择：每个菜单项绑定对应 workspace.id
             DropdownChip(
                 label = uiState.currentWorkspace?.name ?: "选择工作区",
                 icon = Icons.Outlined.Subject,
-                items = uiState.workspaces.map { it.name to { /* 切换工作区逻辑由会话级回调 */ } }
+                items = uiState.workspaces.map { ws ->
+                    ws.name to { onSelectWorkspace(ws.id) }
+                }
             )
             // Agent 预设
             DropdownChip(
@@ -325,7 +331,7 @@ private fun SessionHeader(
         IconButton(onClick = { /* 设置别名 */ }) {
             Icon(Icons.Outlined.Edit, "别名", tint = harnessColors().tertiaryText, modifier = Modifier.size(16.dp))
         }
-        IconButton(onClick = onBranch, enabled = false) {
+        IconButton(onClick = onBranch, enabled = true) {
             Icon(Icons.AutoMirrored.Outlined.ArrowForward, "分支", tint = harnessColors().tertiaryText, modifier = Modifier.size(16.dp))
         }
         IconButton(onClick = { /* Session log */ }) {

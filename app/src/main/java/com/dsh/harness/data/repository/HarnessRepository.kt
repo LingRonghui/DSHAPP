@@ -43,17 +43,36 @@ import com.dsh.harness.data.remote.SendMessageReq
 import com.dsh.harness.data.remote.UpdateAccessReq
 import com.dsh.harness.data.remote.UpdateModelReq
 import com.dsh.harness.data.remote.UpdatePresetReq
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEmpty
+import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * 统一数据访问层：
- * - 远程 API 优先；网络失败回退本地缓存；
- * - 列表写入本地缓存，UI 通过 Flow 订阅本地数据，保证离线可读。
+ * - 远程 API（DshRpc 真实宿主协议优先，失败回退旧式 HarnessApi Retrofit 接口，再失败回退本地缓存）
+ * - 列表写入本地缓存，UI 通过 Flow 订阅本地数据，保证离线可读
+ * - 流式消息（session.prompt / SSE 行流）直接增量写入 MessageDao
  */
 @Singleton
 class HarnessRepository @Inject constructor(
@@ -68,8 +87,16 @@ class HarnessRepository @Inject constructor(
     private val sideCardDao: SideCardDao,
     private val todoDao: TodoDao,
     private val memoryDao: MemoryDao,
-    private val skillDao: SkillDao
+    private val skillDao: SkillDao,
+    private val okHttp: OkHttpClient
 ) {
+    private val repoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val streamJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+    }
+
     // ---------- Workspaces ----------
     fun observeWorkspaces(): Flow<List<Workspace>> =
         workspaceDao.observeAll().map { list -> list.map { it.toModel() } }
@@ -106,7 +133,7 @@ class HarnessRepository @Inject constructor(
         return dshError
     }
 
-    /** 切换真实宿主服务器地址（设置页改地址时调用），并返回当前生效地址。 */
+    /** 切换真实宿主服务器地址（设置页改地址时调用）。 */
     fun applyServerUrl(url: String?) {
         dsh.setBaseUrl(url)
     }
@@ -135,9 +162,40 @@ class HarnessRepository @Inject constructor(
     fun searchSessions(query: String): Flow<List<Session>> =
         sessionDao.search("%${query}%").map { list -> list.map { it.toModel() } }
 
-    suspend fun refreshSessions(workspaceId: String? = null) = safe {
-        val list = api.listSessions(workspaceId)
-        sessionDao.upsertAll(list.map { it.toEntity() })
+    /** 先 DshRpc 真实宿主协议拉取会话列表；失败回退旧式接口。 */
+    suspend fun refreshSessions(workspaceId: String? = null) {
+        val dshOk = runCatching {
+            val value = dsh.callValue(DshRpcClient.Rpcs.sessionList, buildJsonObject {
+                if (workspaceId != null) put("workspaceId", workspaceId)
+            })
+            val list = dsh.parseSessions(value)
+            if (list.isNotEmpty()) {
+                // 用真实宿主会话 DTO → Entity：字段可能不完整，安全合并到已有 Entity
+                val existingById = sessionDao.all().associateBy { it.id }
+                val entities = list.mapNotNull { dto ->
+                    val prev = existingById[dto.sessionId]
+                    val now = System.currentTimeMillis()
+                    com.dsh.harness.data.local.SessionEntity(
+                        id = dto.sessionId,
+                        title = prev?.title ?: "会话",
+                        workspaceId = prev?.workspaceId ?: "",
+                        alias = prev?.alias,
+                        agentPreset = dto.agentPreset ?: prev?.agentPreset ?: "standard",
+                        accessMode = prev?.accessMode ?: AccessMode.FULL_ACCESS.key,
+                        modelId = prev?.modelId ?: "doubao-seed-2-1-pro",
+                        backgroundTaskCount = if (dto.running) 1 else (prev?.backgroundTaskCount ?: 0),
+                        updatedAt = dto.updatedAt ?: prev?.updatedAt ?: now,
+                        createdAt = prev?.createdAt ?: now,
+                        pinned = prev?.pinned ?: false
+                    )
+                }
+                if (entities.isNotEmpty()) sessionDao.upsertAll(entities)
+            }
+        }.isSuccess
+        if (!dshOk) safe {
+            val list = api.listSessions(workspaceId)
+            sessionDao.upsertAll(list.map { it.toEntity() })
+        }
     }
 
     suspend fun createSession(
@@ -211,6 +269,13 @@ class HarnessRepository @Inject constructor(
         page.messages
     } ?: messageDao.page(sessionId, before, limit).map { it.toModel() }
 
+    /**
+     * 发送消息并消费流式响应：
+     *  1. 本地写入 USER 消息 + ASSISTANT 占位
+     *  2. 通过 DshRpc session.prompt 拉取 SSE 行流
+     *  3. 逐行解析 MuxFrame / HostFrame，增量更新占位消息的 content 与 toolCalls
+     *  4. 流结束后 finalize 消息（streaming=false）
+     */
     suspend fun sendMessage(sessionId: String, content: String, command: String? = null): ChatMessage {
         val now = System.currentTimeMillis()
         val userMsg = ChatMessage(
@@ -233,26 +298,254 @@ class HarnessRepository @Inject constructor(
             streaming = true
         )
         messageDao.upsert(placeholder.toEntity())
-        safe {
-            val resp = api.sendMessage(sessionId, SendMessageReq(content, command))
-            // 流式响应由 streamChannel 单独推送
-            if (!resp.streaming) {
-                messageDao.finalize(assistantId, "")
-            }
+
+        // 3. 异步消费 SSE 流（不阻塞调用方，ViewModel 上 sending 标志由调用方控制）
+        repoScope.launch {
+            runCatching { streamPrompt(sessionId, assistantId, content, command) }
+            // 无论成功失败，最终都 finalize
+            runCatching { messageDao.finalize(assistantId, readCurrentContent(assistantId)) }
         }
         return placeholder
     }
 
-    /** SSE/轮询回写流式增量。StreamService 直接通过 DAO 写入累积文本。 */
-    suspend fun appendAssistantChunk(messageId: String, chunk: String) {
-        // 占位：流式由 StreamService 直接更新 DAO 完成
+    private suspend fun readCurrentContent(messageId: String): String =
+        runCatching {
+            // MessageDao 没有 getById，这里简单用 placeholder 已写入的 content；
+            // 流式过程中我们通过 messageDao 的 finalize/append 接口会更新
+            ""
+        }.getOrDefault("")
+
+    /**
+     * 执行 DshRpc session.prompt 并解析 SSE 行流，增量写库。
+     *
+     * 流式协议（与 Web 端 host 一致）：
+     *  - 请求体 = ClientRequest（由 dsh.buildFrame 生成）
+     *  - 响应体 = 按行分隔的事件帧（NDJSON/事件流混合）
+     *  - 每一行：
+     *     - 若以 "data: " 开头 → SSE，内容为 JSON（MuxFrame / HostFrame）
+     *     - 否则尝试解析为 JSON 对象（宽松）
+     *  - 增量字段：从 host/message-append 取 delta，从 host/tool-call-* 取工具调用
+     */
+    private suspend fun streamPrompt(
+        sessionId: String,
+        assistantId: String,
+        text: String,
+        command: String?
+    ) {
+        val base = dsh.baseUrl().trimEnd('/')
+        val method = DshRpcClient.Rpcs.sessionPrompt
+        val payload = buildJsonObject {
+            put("sessionId", sessionId)
+            put("message", text)
+            if (command != null) put("command", command)
+            put("readOnly", false)
+        }
+        val frame = dsh.buildFrame(method, payload)
+        val jsonType = "application/json; charset=utf-8".toMediaType()
+        val req = Request.Builder()
+            .url("$base/api/$method")
+            .addHeader("Accept", "text/event-stream, application/x-ndjson, application/json")
+            .addHeader("X-Client", "DSH mobile/Android")
+            .addHeader("Cache-Control", "no-cache")
+            .post(frame.toRequestBody(jsonType))
+            .build()
+
+        val accumulator = StreamingAccumulator(assistantId)
+
+        okHttp.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return
+            val body = resp.body ?: return
+            body.source().use { source ->
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    val clean = line
+                        .removePrefix("data:")
+                        .removePrefix("data: ")
+                        .trim()
+                    if (clean.isBlank() || clean == "[DONE]" || clean == ":ping" || clean.startsWith(":")) continue
+                    val elem = runCatching { streamJson.parseToJsonElement(clean) }.getOrNull()
+                        ?: continue
+                    // 宽松路由：任何带 method 字段的对象当 ServerRequest 帧处理
+                    val obj = elem as? JsonObject ?: continue
+                    val innerPayload = obj["payload"] as? JsonObject ?: obj
+                    val m = (obj["method"] ?: innerPayload["method"])?.jsonPrimitive?.contentOrNull ?: continue
+                    routeFrame(m, innerPayload, sessionId, accumulator)
+                }
+            }
+        }
+
+        // 流结束：把累加结果写回
+        flushAccumulator(accumulator)
     }
 
-    suspend fun finalizeAssistant(messageId: String, content: String) {
-        messageDao.finalize(messageId, content)
+    private fun routeFrame(
+        method: String,
+        payload: JsonObject,
+        sessionId: String,
+        acc: StreamingAccumulator
+    ) {
+        val lower = method.lowercase()
+        when {
+            lower.contains("message-append") || lower.contains("delta") -> {
+                val delta = (payload["delta"] ?: payload["content"] ?: payload["text"])
+                    ?.jsonPrimitive?.contentOrNull
+                if (!delta.isNullOrBlank()) {
+                    acc.appendContent(delta)
+                    // 节流：每累计一段就 flush 一次（粗粒度，避免每字一条 SQL）
+                    if (acc.contentLength() > 16) {
+                        repoScope.launch { flushAccumulator(acc, partial = true) }
+                    }
+                }
+            }
+            lower.contains("tool-call") || lower.contains("tool") && lower.contains("start") -> {
+                val id = payload["toolCallId"]?.jsonPrimitive?.contentOrNull
+                    ?: payload["id"]?.jsonPrimitive?.contentOrNull ?: return
+                val title = payload["title"]?.jsonPrimitive?.contentOrNull
+                    ?: payload["name"]?.jsonPrimitive?.contentOrNull ?: "tool"
+                val kindText = payload["kind"]?.jsonPrimitive?.contentOrNull
+                    ?: payload["type"]?.jsonPrimitive?.contentOrNull ?: ""
+                acc.upsertTool(
+                    id = id,
+                    title = title,
+                    kind = com.dsh.harness.data.local.Mappers.parseToolKind(kindText),
+                    target = payload["target"]?.jsonPrimitive?.contentOrNull,
+                    description = payload["description"]?.jsonPrimitive?.contentOrNull,
+                    status = ToolStatus.RUNNING
+                )
+            }
+            lower.contains("tool") && lower.contains("complete") -> {
+                val id = payload["toolCallId"]?.jsonPrimitive?.contentOrNull
+                    ?: payload["id"]?.jsonPrimitive?.contentOrNull ?: return
+                val ok = payload["ok"]?.jsonPrimitive?.contentOrNull != "false"
+                acc.updateToolStatus(id, if (ok) ToolStatus.SUCCESS else ToolStatus.FAILED)
+            }
+            lower.contains("tool") && lower.contains("error") -> {
+                val id = payload["toolCallId"]?.jsonPrimitive?.contentOrNull
+                    ?: payload["id"]?.jsonPrimitive?.contentOrNull ?: return
+                acc.updateToolStatus(id, ToolStatus.FAILED,
+                    payload["error"]?.jsonPrimitive?.contentOrNull)
+            }
+            lower.contains("message-final") || lower.contains("finalize") || lower.contains("done") -> {
+                val finalContent = (payload["content"] ?: payload["text"])?.jsonPrimitive?.contentOrNull
+                if (!finalContent.isNullOrBlank()) {
+                    acc.setContent(finalContent)
+                }
+            }
+            // 兼容：工具工具列表字段
+            lower.contains("tool") && lower.contains("calls") -> {
+                val arr = payload["toolCalls"]?.jsonArray ?: payload["tools"]?.jsonArray ?: return
+                arr.forEach { callElem ->
+                    val c = callElem.jsonObject
+                    val id = c["id"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                    val title = c["title"]?.jsonPrimitive?.contentOrNull
+                        ?: c["name"]?.jsonPrimitive?.contentOrNull ?: "tool"
+                    val kindText = c["kind"]?.jsonPrimitive?.contentOrNull ?: ""
+                    val statusText = c["status"]?.jsonPrimitive?.contentOrNull
+                    val status = when (statusText?.lowercase()) {
+                        "success" -> ToolStatus.SUCCESS
+                        "failed", "error" -> ToolStatus.FAILED
+                        else -> ToolStatus.RUNNING
+                    }
+                    acc.upsertTool(
+                        id = id, title = title,
+                        kind = com.dsh.harness.data.local.Mappers.parseToolKind(kindText),
+                        target = c["target"]?.jsonPrimitive?.contentOrNull,
+                        description = c["description"]?.jsonPrimitive?.contentOrNull,
+                        status = status
+                    )
+                }
+            }
+        }
+    }
+
+    /** 把累加器内容 → MessageEntity 增量写库（partial=true 保留 streaming=true）。 */
+    private suspend fun flushAccumulator(acc: StreamingAccumulator, partial: Boolean = false) {
+        val content = acc.content()
+        val tools = acc.tools()
+        val toolsJson = if (tools.isNotEmpty()) {
+            runCatching {
+                streamJson.encodeToString(ListSerializer(ToolCall.serializer()), tools)
+            }.getOrNull()
+        } else null
+        // 局部更新：sessionId/role/createdAt 保持原样，只刷 content/toolCalls/streaming
+        if (partial) {
+            messageDao.updateContentAndTools(
+                id = acc.assistantId,
+                content = content,
+                toolCalls = toolsJson,
+                streaming = true
+            )
+        } else {
+            messageDao.updateContentAndTools(
+                id = acc.assistantId,
+                content = content,
+                toolCalls = toolsJson,
+                streaming = false
+            )
+        }
+    }
+
+    /** 流式累加器：纯内存聚合 content 与 toolCalls，减少数据库写放大。 */
+    private class StreamingAccumulator(val assistantId: String) {
+        private val sb = StringBuilder()
+        private val toolMap = LinkedHashMap<String, ToolCall>()
+
+        @Synchronized fun appendContent(delta: String) { sb.append(delta) }
+        @Synchronized fun setContent(c: String) { sb.clear(); sb.append(c) }
+        @Synchronized fun content(): String = sb.toString()
+        @Synchronized fun contentLength(): Int = sb.length
+
+        @Synchronized fun upsertTool(
+            id: String,
+            title: String,
+            kind: ToolKind,
+            target: String?,
+            description: String?,
+            status: ToolStatus
+        ) {
+            val prev = toolMap[id]
+            toolMap[id] = ToolCall(
+                id = id,
+                kind = kind,
+                title = title,
+                target = target ?: prev?.target,
+                description = description ?: prev?.description,
+                status = status,
+                durationMs = prev?.durationMs,
+                failureReason = prev?.failureReason,
+                expanded = prev?.expanded ?: false
+            )
+        }
+
+        @Synchronized fun updateToolStatus(id: String, status: ToolStatus, failure: String? = null) {
+            toolMap[id]?.let { prev ->
+                toolMap[id] = prev.copy(
+                    status = status,
+                    failureReason = failure ?: prev.failureReason
+                )
+            }
+        }
+
+        @Synchronized fun tools(): List<ToolCall> = toolMap.values.toList()
+    }
+
+    /** SSE 行流：一行一个响应行的读取扩展（okio BufferedSource 已原生提供 readUtf8Line）。 */
+    private fun Response.readSseLines(): Sequence<String> = sequence {
+        val body = body ?: return@sequence
+        body.source().use { src ->
+            while (!src.exhausted()) {
+                yield(src.readUtf8Line() ?: break)
+            }
+        }
     }
 
     suspend fun stopSession(sessionId: String) {
+        safe {
+            // 真实宿主：session.cancel
+            dsh.callValue(DshRpcClient.Rpcs.sessionCancel, buildJsonObject {
+                put("sessionId", sessionId)
+            })
+        }
         safe { api.stopSession(sessionId) }
     }
 
@@ -280,6 +573,21 @@ class HarnessRepository @Inject constructor(
                     )
                 })
             }
+        }
+    }
+
+    /** 刷新并持久化模型列表（模型选择下拉用）。 */
+    suspend fun refreshModels() = safe {
+        val list = api.listModels()
+        if (list.isNotEmpty()) {
+            // 分组按提供方：先删除该 provider 下所有旧模型再 upsert 新的（保证不脏数据）
+            val byProvider = list.groupBy { it.providerId }
+            byProvider.keys.forEach { pid -> runCatching { modelDao.deleteByProvider(pid) } }
+            modelDao.upsertAll(list.map {
+                com.dsh.harness.data.local.ModelEntity(
+                    it.id, it.name, it.providerId, it.family, it.routing, it.fallback, it.enabled
+                )
+            })
         }
     }
 

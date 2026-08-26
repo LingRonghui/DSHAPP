@@ -28,6 +28,9 @@ interface SessionDao {
     @Query("SELECT * FROM sessions ORDER BY updatedAt DESC")
     fun observeAll(): Flow<List<SessionEntity>>
 
+    @Query("SELECT * FROM sessions ORDER BY updatedAt DESC")
+    suspend fun all(): List<SessionEntity>
+
     @Query("SELECT * FROM sessions WHERE workspaceId = :workspaceId ORDER BY updatedAt DESC")
     fun observeByWorkspace(workspaceId: String): Flow<List<SessionEntity>>
 
@@ -73,11 +76,27 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE sessionId = :sessionId AND createdAt < :before ORDER BY createdAt DESC LIMIT :limit")
     suspend fun page(sessionId: String, before: Long, limit: Int = 50): List<MessageEntity>
 
+    @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
+    suspend fun get(id: String): MessageEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: MessageEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<MessageEntity>)
+
+    /** 流式增量追加：保留原有字段，只更新 content + streaming 状态。 */
+    @Query("UPDATE messages SET content = :content, streaming = :streaming WHERE id = :id")
+    suspend fun updateContent(id: String, content: String, streaming: Boolean)
+
+    /** 流式增量 + 工具调用 JSON 更新。 */
+    @Query("UPDATE messages SET content = :content, toolCalls = :toolCalls, streaming = :streaming WHERE id = :id")
+    suspend fun updateContentAndTools(
+        id: String,
+        content: String,
+        toolCalls: String?,
+        streaming: Boolean
+    )
 
     @Query("UPDATE messages SET streaming = 0, content = :content WHERE id = :id")
     suspend fun finalize(id: String, content: String)
