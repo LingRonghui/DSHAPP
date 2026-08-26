@@ -55,9 +55,9 @@ private sealed class MdBlock {
     data class Code(val language: String?, val code: String) : MdBlock()
     data class Paragraph(val text: String) : MdBlock()
     data class Quote(val text: String) : MdBlock()
-    data class List(val ordered: Boolean, val items: List<String>) : MdBlock()
+    data class ListBlock(val ordered: Boolean, val items: kotlin.collections.List<String>) : MdBlock()
     data class Divider(val ignored: Unit = Unit) : MdBlock()
-    data class Table(val header: List<String>, val rows: List<List<String>>) : MdBlock()
+    data class Table(val header: kotlin.collections.List<String>, val rows: kotlin.collections.List<kotlin.collections.List<String>>) : MdBlock()
 }
 
 private fun parseMarkdown(src: String): List<MdBlock> {
@@ -97,7 +97,7 @@ private fun parseMarkdown(src: String): List<MdBlock> {
                 items.add(lines[i].substring(2))
                 i++
             }
-            out.add(MdBlock.List(ordered = false, items = items))
+            out.add(MdBlock.ListBlock(ordered = false, items = items))
             continue
         }
         if (line.matches(Regex("""\d+\.\s.*"""))) {
@@ -106,7 +106,7 @@ private fun parseMarkdown(src: String): List<MdBlock> {
                 items.add(lines[i].substringAfter(". ", ""))
                 i++
             }
-            out.add(MdBlock.List(ordered = true, items = items))
+            out.add(MdBlock.ListBlock(ordered = true, items = items))
             continue
         }
         if (line.startsWith("---") || line.startsWith("***")) {
@@ -173,7 +173,7 @@ private fun renderBlock(block: MdBlock) {
                 Text(block.text, style = MaterialTheme.typography.bodyMedium, color = harnessColors().secondaryText)
             }
         }
-        is MdBlock.List -> {
+        is MdBlock.ListBlock -> {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 block.items.forEachIndexed { idx, item ->
                     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
