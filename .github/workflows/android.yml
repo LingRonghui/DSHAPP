@@ -3,59 +3,68 @@ name: Android Build
 on:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
+
+env:
+  JAVA_VERSION: '17'
+  JAVA_DIST: 'temurin'
+  ANDROID_COMPILE_SDK: '34'
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  GRADLE_VERSION: '8.9'
 
 jobs:
   build-debug:
     name: Build Debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17
+      - name: Setup JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DIST }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 11076708
-          packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
+          packages: >
+            platforms;android-${{ env.ANDROID_COMPILE_SDK }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            platform-tools
 
-      - name: Setup Gradle
+      - name: Setup Gradle ${{ env.GRADLE_VERSION }} (wrapper校验禁用，规避无效hash)
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: wrapper
+          gradle-version: ${{ env.GRADLE_VERSION }}
           validate-wrappers: false
           cache-write-only: true
-
-      - name: Regenerate official Gradle Wrapper 8.9
-        run: |
-          set -e
-          # 无论仓库里 wrapper 状态如何，都用系统 gradle 重新生成官方8.9 wrapper三件套
-          which gradle || ( echo "gradle not on PATH, trying setup-gradle provisioned..."; ls -la /usr/bin/gradle* 2>/dev/null || true )
-          gradle wrapper --gradle-version 8.9 --distribution-type bin
-          chmod +x ./gradlew
-          echo "=== wrapper 校验 ==="
-          ls -la gradlew gradle/wrapper/
-          ./gradlew --version 2>&1 | head -10 || true
+          gradle-home-cache-includes: |
+            caches
+            notifications
+            jdks
+            wrapper/dists
 
       - name: Build Debug APK
+        id: build_debug
         run: |
-          ./gradlew --no-daemon assembleDebug --stacktrace \
-            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=512m" \
-            -Pandroid.useAndroidX=true \
-            -Pandroid.enableJetifier=true \
-            --no-build-cache
+          echo "=== Gradle 构建开始（直接使用系统Gradle，不依赖wrapper jar）==="
+          gradle --no-daemon --offline=false assembleDebug -Pandroid.verbose=true --stacktrace 2>&1 | tail -200
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "=== 构建结束，exit=$EXIT_CODE ==="
+          ls -la app/build/outputs/apk/debug/ 2>/dev/null || echo "⚠ 未找到debug输出目录"
+          exit $EXIT_CODE
 
-      - name: Upload Debug APK
+      - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -64,14 +73,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload build outputs
+      - name: Upload mapping / outputs
         uses: actions/upload-artifact@v4
-        if: always()
+        if: success()
         with:
-          name: debug-outputs
+          name: debug-build-outputs
           path: |
             app/build/outputs/**/*.txt
             app/build/outputs/**/*.json
-            **/build/reports/**/*
           if-no-files-found: ignore
           retention-days: 14
