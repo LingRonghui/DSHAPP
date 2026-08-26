@@ -16,6 +16,7 @@ import com.dsh.harness.data.model.SessionTab
 import com.dsh.harness.data.model.SideCard
 import com.dsh.harness.data.model.Workspace
 import com.dsh.harness.data.repository.HarnessRepository
+import com.dsh.harness.data.remote.EventStream
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -74,7 +75,8 @@ data class AppUiState(
 @HiltViewModel
 class AppShellViewModel @Inject constructor(
     private val repo: HarnessRepository,
-    private val prefs: PrefsRepository
+    private val prefs: PrefsRepository,
+    private val events: EventStream
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AppUiState())
@@ -84,9 +86,25 @@ class AppShellViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
     init {
-        // 服务器地址切换时同步到真实宿主客户端
+        // 服务器地址切换时同步到真实宿主客户端 + 事件流
         viewModelScope.launch {
-            prefs.baseUrl.collect { repo.applyServerUrl(it) }
+            prefs.baseUrl.collect { url ->
+                repo.applyServerUrl(url)
+                events.setBase(url)
+            }
+        }
+        // 官方事件流：连接 /api/events.mux，收到 host/session 事件自动刷新，实现实时同步
+        viewModelScope.launch {
+            events.start()
+            events.events.collect { frame ->
+                val method = frame.method ?: return@collect
+                when {
+                    method.contains("workspace", ignoreCase = true) ->
+                        viewModelScope.launch { runCatching { repo.refreshWorkspaces() } }
+                    method.contains("session", ignoreCase = true) ->
+                        viewModelScope.launch { runCatching { repo.refreshSessions() } }
+                }
+            }
         }
         // 订阅工作区、会话、提供方、模型、侧边卡片
         viewModelScope.launch {
