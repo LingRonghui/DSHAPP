@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.dsh.harness.data.local.PrefsRepository
+import kotlinx.coroutines.flow.first
 import com.dsh.harness.ui.HarnessApp
 import com.dsh.harness.ui.theme.HarnessTheme
 import com.dsh.harness.ui.theme.ThemeMode
@@ -40,7 +41,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by produceState(initialValue = ThemeMode.System) {
-                prefs.themeMode.collect { value = it }
+                // first() 只取首个值即返回；collect{} 在 DataStore 无限流上会永远挂起，
+                // 导致 ready 永不置真、启动屏永久停留（表现为 App 打不开）。
+                value = try { prefs.themeMode.first() } catch (e: Exception) { ThemeMode.System }
                 ready = true
             }
             HarnessTheme(themeMode = themeMode) {
