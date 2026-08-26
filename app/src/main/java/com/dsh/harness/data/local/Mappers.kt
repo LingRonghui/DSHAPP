@@ -30,6 +30,7 @@ object Mappers {
     }
     private val toolListSerializer = ListSerializer(ToolCall.serializer())
     private val retrySerializer = RetryInfo.serializer()
+    private val stringListSerializer = ListSerializer(kotlinx.serialization.builtins.serializer<String>())
 
     fun WorkspaceEntity.toModel(): Workspace = Workspace(
         id = id, name = name, parentId = parentId, createdAt = createdAt
@@ -95,7 +96,7 @@ object Mappers {
     fun MarketPlugin.toEntity(): PluginEntity = PluginEntity(
         id = id, name = name, author = author, kind = kind, stars = stars,
         installs = installs, description = description,
-        tagsJson = json.encodeToString(tags),
+        tagsJson = json.encodeToString(stringListSerializer, tags),
         recentlyUpdated = recentlyUpdated, installed = installed, favorited = favorited,
         hasUpdate = hasUpdate, fromVersion = fromVersion, toVersion = toVersion,
         repoUrl = repoUrl, githubBound = githubBound
